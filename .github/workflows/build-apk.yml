@@ -20,34 +20,61 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Extract Android project
+      - name: Find and extract project ZIP
+        shell: bash
         run: |
+          set -e
+
           mkdir -p build-src
-          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" | head -n 1)
+
           if [ -z "$ZIP_FILE" ]; then
-            echo "Project ZIP not found"
+            echo "ERROR: Project ZIP not found"
             exit 1
           fi
+
+          echo "Using ZIP: $ZIP_FILE"
+
           unzip -q "$ZIP_FILE" -d build-src
 
       - name: Find Android project
+        shell: bash
         run: |
-          PROJECT_DIR=$(find build-src -name settings.gradle -type f | head -n 1 | xargs dirname)
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project: $PROJECT_DIR"
+          set -e
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
+          PROJECT_DIR=$(find build-src -type f -name "gradlew" -print -quit | xargs -r dirname)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: gradlew not found"
+            find build-src -maxdepth 4 -type f | head -100
+            exit 1
+          fi
+
+          PROJECT_DIR=$(cd "$PROJECT_DIR" && pwd)
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "Android project found:"
+          echo "$PROJECT_DIR"
+
+      - name: Make Gradle executable
+        run: |
+          chmod +x "$PROJECT_DIR/gradlew"
 
       - name: Build Debug APK
         run: |
           cd "$PROJECT_DIR"
-          gradle --no-daemon assembleDebug
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Find APK
+        run: |
+          find "$PROJECT_DIR" -type f -name "*.apk" -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: NSE-Option-Chain-Analyzer-APK
-          path: "${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk"
+          path: |
+            ${{ env.PROJECT_DIR }}/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
